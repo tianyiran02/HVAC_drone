@@ -492,18 +492,16 @@ static void GenericApp_MessageMSGCB( afIncomingMSGPacket_t *pkt )
 {
   switch ( pkt->clusterId )
   {
-      case GENERICAPP_CLUSTERID:
-        break;
+  case GENERICAPP_CLUSTERID:
+    break;
 
-      // CMD Msg
-      case QUEEN_CMD_CLUSTERID:
-        drone_DeviceCMDReact(pkt);
-      break;
+  // CMD Msg
+  case QUEEN_CMD_CLUSTERID:
+    drone_DeviceCMDReact(pkt);
+    break;
       
-#if defined( WIN32 )
-      WPRINTSTR( pkt->cmd.Data );
-#endif
-      break;
+  default:
+    break;
   }
 }
 
