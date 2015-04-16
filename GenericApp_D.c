@@ -88,12 +88,13 @@
 #define DRONE_DATA_ACK          0x0f
 #define DRONE_SEND_REQ          0x0a
 
-#define TempTH      20  // 1 degree (exp)
-#define CurrentTH   4   // 0.5 ACC   
-#define LPressTH    10  // 0.5 - 0.6 bar
-#define HPressTH    4   // 0.5 - 0.6 bar
+// The threshould was setting to 5% of overall measuring range (0.25v)
+#define TempTH      15  
+#define CurrentTH   15  
+#define LPressTH    15  
+#define HPressTH    15   
 
-#define UpLoad_NormalPeriod   3   // Basic upload period, in mintues
+#define UpLoad_NormalPeriod   1   // Basic upload period, in mintues
 
 #define AVAILABLE       1
 #define UNAVAILABLE     0
@@ -159,18 +160,27 @@ devStates_t GenericApp_NwkState;
 
 byte GenericApp_TransID;  // This is the unique message ID (counter)
 
-// Transplant from version 4 2014/10/29. ver5
-// 
 // This destination was used to connect with coordinator
 afAddrType_t Point_To_Point_DstAddr;
 
-uint8 drone_MinCounter = 0;
-uint8 oneSecondTimercounter = 0;
+/* system related */
+// Drone upload interval minutes counter. 
+// When value greater than  UpLoad_NormalPeriod , perform a upload
+static uint8 drone_MinCounter = 0;
+
+// oneSecond Timer. 
+// After system powerup, avoid upload in the first minute. This is because
+// the first minute the ring buffer data is not ready.
+static uint8 oneSecondTimercounter = 0;
 
 /* ADC related */
-uint8 ADCReasult[4] = {0}; //0 - Temp; 1 - Current; 2 - HPress; 3 - LPress
-uint16 ADCReasult60SUM[4] = {0}; 
-uint8 ADCReadytoSend = 0; 
+static uint8 ADCReasult[4] = {0}; //0 - Temp; 1 - Current; 2 - HPress; 3 - LPress
+
+// Used to store the calculation result of ringbuffer summation
+static uint16 ADCReasult60SUM[4] = {0}; 
+
+// Used to avoid upload data in the first minute
+static short ADCReadytoSend = 0; 
 
 // variables for windows buffer 
 ADC_Ringbuffer_t DATA1_RingBuffer_pointer; // temp, ADC0
@@ -179,26 +189,26 @@ ADC_Ringbuffer_t DATA3_RingBuffer_pointer; // HP, ADC2
 ADC_Ringbuffer_t DATA4_RingBuffer_pointer; // LP, ADC3
 
 // Windows size: 60 bytes
-uint8 DATA1_RingBuffer[65] = {0};
-uint8 DATA2_RingBuffer[65] = {0};
-uint8 DATA3_RingBuffer[65] = {0};
-uint8 DATA4_RingBuffer[65] = {0};
+static uint8 DATA1_RingBuffer[65] = {0};
+static uint8 DATA2_RingBuffer[65] = {0};
+static uint8 DATA3_RingBuffer[65] = {0};
+static uint8 DATA4_RingBuffer[65] = {0};
 // end
 
-uint8 requestTimer = 0; // used to count delay time.
+/* upload control related */
+// used to count delay time.
+static uint8 requestTimer = 0; 
 
-uint8 drone_resetFlag = FALSE;
-uint8 drone_waitACKTimer = DRONE_ACKWAITTIME;
-uint8 drone_waitACKFlag = FALSE;
+// flags
+static uint8 drone_resetFlag = FALSE;
+static uint8 drone_waitACKTimer = DRONE_ACKWAITTIME;
+static uint8 drone_waitACKFlag = FALSE;
 
 /*********************************************************************
  * LOCAL FUNCTIONS
  */
 static void GenericApp_MessageMSGCB( afIncomingMSGPacket_t *pckt );
 
-// Transplant from version 4 2014/10/29. ver5
-// 
-// removed duplicate functions
 static void drone_PeriodicDataMessage( void );
 static void drone_DataSendingRequest( void );
 static void drone_InitialMessage( void );
@@ -377,9 +387,13 @@ uint16 GenericApp_ProcessEvent( uint8 task_id, uint16 events )
     drone_PrepareData();
         
     if(drone_Datachange()) // Data changed significantly
+    {
       drone_DataSendingRequest(); // Send data sending request
+      drone_MinCounter = 0;
+    }
     else // Data has no big changed
     {
+      // counter adding. counter will only clear after upload
       drone_MinCounter ++;
       if(drone_MinCounter >= UpLoad_NormalPeriod)
         drone_DataSendingRequest(); // Send data sending request
@@ -416,9 +430,12 @@ uint16 GenericApp_ProcessEvent( uint8 task_id, uint16 events )
     }
     
     /* handle the request delay */
+    // Check request timer
+    // for detail, see in function drone_DeviceCMDReact
     if(requestTimer > 0)
     {
       requestTimer --;
+      drone_MinCounter = 0;
       
       // delay finish, resend request
       if(requestTimer == 0)
