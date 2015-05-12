@@ -89,10 +89,10 @@
 #define DRONE_SEND_REQ          0x0a
 
 // The threshould was setting to 5% of overall measuring range (0.25v)
-#define TempTH      15  
-#define CurrentTH   15  
-#define LPressTH    15  
-#define HPressTH    15   
+#define TempTH      410  
+#define CurrentTH   410  
+#define LPressTH    410  
+#define HPressTH    410   
 
 #define UpLoad_NormalPeriod   1   // Basic upload period, in mintues
 
@@ -109,8 +109,8 @@
  */
 typedef struct
 {
-  uint8               *pIn;
-  uint8               *pOut;
+  uint16               *pIn;
+  uint16               *pOut;
 } ADC_Ringbuffer_t;
 
 /*********************************************************************
@@ -174,10 +174,7 @@ static uint8 drone_MinCounter = 0;
 static uint8 oneSecondTimercounter = 0;
 
 /* ADC related */
-static uint8 ADCReasult[4] = {0}; //0 - Temp; 1 - Current; 2 - HPress; 3 - LPress
-
-// Used to store the calculation result of ringbuffer summation
-static uint16 ADCReasult60SUM[4] = {0}; 
+static uint16 ADCReasult[4] = {0}; //0 - Temp; 1 - Current; 2 - HPress; 3 - LPress
 
 // Used to avoid upload data in the first minute
 static short ADCReadytoSend = 0; 
@@ -189,10 +186,10 @@ ADC_Ringbuffer_t DATA3_RingBuffer_pointer; // HP, ADC2
 ADC_Ringbuffer_t DATA4_RingBuffer_pointer; // LP, ADC3
 
 // Windows size: 60 bytes
-static uint8 DATA1_RingBuffer[65] = {0};
-static uint8 DATA2_RingBuffer[65] = {0};
-static uint8 DATA3_RingBuffer[65] = {0};
-static uint8 DATA4_RingBuffer[65] = {0};
+static uint16 DATA1_RingBuffer[65] = {0};
+static uint16 DATA2_RingBuffer[65] = {0};
+static uint16 DATA3_RingBuffer[65] = {0};
+static uint16 DATA4_RingBuffer[65] = {0};
 // end
 
 /* upload control related */
@@ -212,8 +209,8 @@ static void GenericApp_MessageMSGCB( afIncomingMSGPacket_t *pckt );
 static void drone_PeriodicDataMessage( void );
 static void drone_DataSendingRequest( void );
 static void drone_InitialMessage( void );
-static uint8 pushBufSample(uint8, uint8);
-static uint8 getBufSample(uint8);
+static uint16 pushBufSample(uint8, uint16);
+static uint16 getBufSample(uint8);
 static void drone_PrepareData( void );
 static void drone_GetADCData( void );
 static uint8 drone_Datachange( void );
@@ -384,8 +381,6 @@ uint16 GenericApp_ProcessEvent( uint8 task_id, uint16 events )
     // Prepare the sending data (have to calculate twice before sending)
     // 1st, datachange? 2st send (request-ask may introduce huge delay)
     // here is 1st
-    drone_PrepareData();
-        
     if(drone_Datachange()) // Data changed significantly
     {
       drone_DataSendingRequest(); // Send data sending request
@@ -603,10 +598,10 @@ static void drone_PeriodicDataMessage( void )
     
     temp[4] = 0x04; // 4 Bytes
 
-    temp[5] = ADCReasult[0];
-    temp[6] = ADCReasult[1];
-    temp[7] = ADCReasult[2];
-    temp[8] = ADCReasult[3];
+    temp[5] = (uint8)(ADCReasult[0] >> 5);
+    temp[6] = (uint8)(ADCReasult[1] >> 5);
+    temp[7] = (uint8)(ADCReasult[2] >> 5);
+    temp[8] = (uint8)(ADCReasult[3] >> 5);
     
     for(i = 0;i <=8;i ++) // CRC
       temp[9] += temp[i];
@@ -647,30 +642,43 @@ static void drone_PeriodicDataMessage( void )
  */
 static uint8 drone_Datachange( void )
 {
-  uint8 temp = 0;
+  uint32 accTemp = 0;
+  uint16 temp = 0;
   uint8 Status = 0;
   
   // Divide by 60, median filter
   // Compare with previous data
-  temp = ADCReasult60SUM[0] / 60;
-  if(abs((signed int)temp - ADCReasult[0]) > TempTH)
+  for(temp=0;temp<60;temp++)
+    accTemp += getBufSample(1);
+  temp = accTemp / 60;
+  if(abs(temp - ADCReasult[0]) > TempTH)
     Status = 1;
   ADCReasult[0] = temp;
+  accTemp = 0;
   
-  temp = ADCReasult60SUM[1] / 60;
-  if(abs((signed int)temp - ADCReasult[1]) > CurrentTH)
+  for(temp=0;temp<60;temp++)
+    accTemp += getBufSample(2);
+  temp = accTemp / 60;
+  if(abs(temp - ADCReasult[1]) > CurrentTH)
     Status = 1;
   ADCReasult[1] = temp;
-
-  temp = ADCReasult60SUM[2] / 60;
-  if(abs((signed int)temp - ADCReasult[2]) > HPressTH)
+  accTemp = 0;
+  
+  for(temp=0;temp<60;temp++)
+    accTemp += getBufSample(3);
+  temp = accTemp / 60;
+  if(abs(temp - ADCReasult[2]) > HPressTH)
     Status = 1;
   ADCReasult[2] = temp;
+  accTemp = 0;
   
-  temp = ADCReasult60SUM[3] / 60;
-  if(abs((signed int)temp - ADCReasult[3]) > HPressTH)
+  for(temp=0;temp<60;temp++)
+    accTemp += getBufSample(4);
+  temp = accTemp / 60;
+  if(abs(temp - ADCReasult[3]) > HPressTH)
     Status = 1;
   ADCReasult[3] = temp;  
+  accTemp = 0;
   
   return Status;
 }
@@ -810,11 +818,11 @@ static void drone_DeviceCMDReact(afIncomingMSGPacket_t *Msg)
  *
  * @param   
  *
- * @return  one byte data
+ * @return  uint16
  */
-static uint8 getBufSample(uint8 target)
+static uint16 getBufSample(uint8 target)
 {
-  uint8 value = 0;
+  uint16 value = 0;
   
   switch(target)
   {
@@ -869,9 +877,9 @@ static uint8 getBufSample(uint8 target)
  *
  * @param   
  *
- * @return  one byte data
+ * @return  uint16
  */
-static uint8 pushBufSample(uint8 target, uint8 value)
+static uint16 pushBufSample(uint8 target, uint16 value)
 {  
   switch(target)
   {
@@ -931,18 +939,18 @@ static uint8 pushBufSample(uint8 target, uint8 value)
  */
 static void drone_GetADCData( void )
 {
-  uint8 temp = 0;
+  uint16 temp = 0;
   
-  temp = (uint8)(HalAdcRead (0, HAL_ADC_RESOLUTION_10) >> 1);
+  temp = HalAdcRead (0, HAL_ADC_RESOLUTION_14);
   pushBufSample(1,temp);
   
-  temp = (uint8)(HalAdcRead (1, HAL_ADC_RESOLUTION_10) >> 1);
+  temp = HalAdcRead (1, HAL_ADC_RESOLUTION_14);
   pushBufSample(2,temp);  
 
-  temp = (uint8)(HalAdcRead (2, HAL_ADC_RESOLUTION_10) >> 1);
+  temp = HalAdcRead (2, HAL_ADC_RESOLUTION_14);
   pushBufSample(3,temp);
 
-  temp = (uint8)(HalAdcRead (3, HAL_ADC_RESOLUTION_10) >> 1);
+  temp = HalAdcRead (3, HAL_ADC_RESOLUTION_14);
   pushBufSample(4,temp);
   
   
@@ -970,24 +978,20 @@ static void drone_GetADCData( void )
  */
 static void drone_PrepareData( void )
 {
-  uint8 temp = 0;
-  
-  // Flush the sumation buffer
-  memset(ADCReasult60SUM,0,sizeof(ADCReasult60SUM));
-  
-  // Get sumation of the sampling window buffer
-  for(temp=0;temp<60;temp++)
-    ADCReasult60SUM[0] += getBufSample(1);
-  
-  for(temp=0;temp<60;temp++)
-    ADCReasult60SUM[1] += getBufSample(2);
-
-  for(temp=0;temp<60;temp++)
-    ADCReasult60SUM[2] += getBufSample(3);
-  
-  for(temp=0;temp<60;temp++)
-    ADCReasult60SUM[3] += getBufSample(4);
+  uint32 accTemp = 0;
+  uint16 temp = 0;
+  uint8 i = 0;
+   
+  // Recalculate the ADC reading
+  for(i=0; i<=3; i++)
+  {
+    for(temp=0;temp<60;temp++)
+      accTemp += getBufSample(i+1);
     
+    temp = accTemp / 60;   
+    ADCReasult[i] = temp;
+    accTemp = 0;
+  }
 }
 
 /******************************************************************************
