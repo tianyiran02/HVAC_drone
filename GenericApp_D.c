@@ -65,6 +65,8 @@
 #include "hal_adc.h"
 // end
 
+#include "Config_APP.h"
+
 #if !defined( WIN32 ) || defined( ZBIT )
   #include "OnBoard.h"
 #endif
@@ -78,23 +80,9 @@
  * MACROS
  */
 
-#define DRONE_DEVICE_ID         1
-
-#define DRONE_FAILURE_MAXIMUN   2
-
-#define DRONE_ACKWAITTIME       10 // ACK reset wait time in second
-
 #define DRONE_RESEND_INIT       0x0d
 #define DRONE_DATA_ACK          0x0f
 #define DRONE_SEND_REQ          0x0a
-
-// The threshould was setting to 5% of overall measuring range (0.25v)
-#define TempTH      410  
-#define CurrentTH   410  
-#define LPressTH    410  
-#define HPressTH    410   
-
-#define UpLoad_NormalPeriod   1   // Basic upload period, in mintues
 
 #define AVAILABLE       1
 #define UNAVAILABLE     0
@@ -186,10 +174,10 @@ ADC_Ringbuffer_t DATA3_RingBuffer_pointer; // HP, ADC2
 ADC_Ringbuffer_t DATA4_RingBuffer_pointer; // LP, ADC3
 
 // Windows size: 60 bytes
-static uint16 DATA1_RingBuffer[65] = {0};
-static uint16 DATA2_RingBuffer[65] = {0};
-static uint16 DATA3_RingBuffer[65] = {0};
-static uint16 DATA4_RingBuffer[65] = {0};
+static uint16 DATA1_RingBuffer[65] = {0}; //temperature
+static uint16 DATA2_RingBuffer[65] = {0}; // current
+static uint16 DATA3_RingBuffer[65] = {0}; // HP
+static uint16 DATA4_RingBuffer[65] = {0}; // LP
 // end
 
 /* upload control related */
@@ -941,16 +929,20 @@ static void drone_GetADCData( void )
 {
   uint16 temp = 0;
   
-  temp = HalAdcRead (0, HAL_ADC_RESOLUTION_14);
+  // Temperature
+  temp = HalAdcRead (0, HAL_ADC_RESOLUTION_14) - minTempOffset;
   pushBufSample(1,temp);
   
-  temp = HalAdcRead (1, HAL_ADC_RESOLUTION_14);
+  // Current
+  temp = HalAdcRead (1, HAL_ADC_RESOLUTION_14) + CurrentOffset;
   pushBufSample(2,temp);  
 
-  temp = HalAdcRead (2, HAL_ADC_RESOLUTION_14);
+  // High pressure
+  temp = HalAdcRead (2, HAL_ADC_RESOLUTION_14) + HPressOffset;
   pushBufSample(3,temp);
 
-  temp = HalAdcRead (3, HAL_ADC_RESOLUTION_14);
+  // Low pressure
+  temp = HalAdcRead (3, HAL_ADC_RESOLUTION_14) + LPressOffset;
   pushBufSample(4,temp);
   
   

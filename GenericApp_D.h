@@ -70,7 +70,7 @@ extern "C"
 // Send Message Timeout
 #define GENERICAPP_DRONE_PERIODIC_MSG_TIMEOUT   60000   // Every 60 seconds
 #define GENERICAPP_ADC_TIMEOUT                  1000    // Every 1 second
-#define GENERICAPP_WDT_TIMEOUT                  500
+#define GENERICAPP_WDT_TIMEOUT                  250
   
 // Application Events (OSAL) - These are bit weighted definitions.
 #define GENERICAPP_WDT_CLEAR_EVT                0x0001
