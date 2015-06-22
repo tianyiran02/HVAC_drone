@@ -183,6 +183,8 @@ static uint16 DATA4_RingBuffer[65] = {0}; // LP
 /* upload control related */
 // used to count delay time.
 static uint8 requestTimer = 0; 
+static uint8 firtHighFreqAttemp = (DRONE_TESTUPLOADPOINT + 1);
+static uint8 highFreqSecCounter = DRONE_TESTUPLOADTIME;
 
 // flags
 static uint8 drone_resetFlag = FALSE;
@@ -352,6 +354,7 @@ uint16 GenericApp_ProcessEvent( uint8 task_id, uint16 events )
     return (events ^ SYS_EVENT_MSG);
   }
 
+  
   /** 
    *    Periodic data timer, check whether need to upload once timeout 
    *
@@ -395,6 +398,7 @@ uint16 GenericApp_ProcessEvent( uint8 task_id, uint16 events )
    * 1. read ADC data
    * 2. update ACK timer 
    * 3. handle the request delay
+   * 4. upload every 30s when power up
    *
    **/
   if( events & GENERICAPP_ADCMEASURE_EVT)
@@ -427,6 +431,35 @@ uint16 GenericApp_ProcessEvent( uint8 task_id, uint16 events )
       }
     }
     
+    /* upload every setting time after power up
+     *
+     * This is achieved by few steps. First the 1s timer will count 30s.
+     * When 30s, will reload 1min timer to triger in next 1s, and when 
+     * in power on condition, the dataChange() function will run another routine
+     * which is different from normal. It will upload one ADC data from the 
+     * ring buffer directly. By this can achieve the upload in every 30s for 5
+     * times after power up without change a large range of existing code.
+     *
+     */
+    
+    // if just power up
+    if(firtHighFreqAttemp)
+    {
+      highFreqSecCounter --;
+      
+      // every 30s
+      if(highFreqSecCounter <= 1)
+      {
+        highFreqSecCounter = 30; // reload
+        firtHighFreqAttemp --;
+        
+        // Setup to send message in 1s
+        osal_start_timerEx( GenericApp_TaskID, GENERICAPP_DRONE_PERIODIC_MSG_EVT,
+            GENERICAPP_ADC_TIMEOUT);
+      }
+    }
+    
+    
     // Reload the timer
     osal_start_timerEx( GenericApp_TaskID, GENERICAPP_ADCMEASURE_EVT,
                         GENERICAPP_ADC_TIMEOUT );
@@ -434,6 +467,9 @@ uint16 GenericApp_ProcessEvent( uint8 task_id, uint16 events )
     return( events ^ GENERICAPP_ADCMEASURE_EVT );
   }
   
+  /*    WDT timer
+   *
+   */
   if( events & GENERICAPP_WDT_CLEAR_EVT)
   {
     // if reset flag not set, clear WDT every few time
@@ -565,7 +601,7 @@ static void drone_PeriodicDataMessage( void )
   i = 0;
   
   /* Determine whether update data */
-  if(ADCReadytoSend)
+  if(ADCReadytoSend || firtHighFreqAttemp)
   {
     temp[2] = 10;
     temp[3] = (0x80 | 0x40 | 0x02);
@@ -585,14 +621,14 @@ static void drone_PeriodicDataMessage( void )
     }
     
     temp[4] = 0x04; // 4 Bytes
-
     temp[5] = (uint8)(ADCReasult[0] >> 5);
     temp[6] = (uint8)(ADCReasult[1] >> 5);
     temp[7] = (uint8)(ADCReasult[2] >> 5);
-    temp[8] = (uint8)(ADCReasult[3] >> 5);
+    temp[8] = (uint8)(ADCReasult[3] >> 5);    
     
     for(i = 0;i <=8;i ++) // CRC
       temp[9] += temp[i];
+
     
     // Start to send
     if ( AF_DataRequest( &Point_To_Point_DstAddr, &GenericApp_epDesc,
@@ -634,40 +670,55 @@ static uint8 drone_Datachange( void )
   uint16 temp = 0;
   uint8 Status = 0;
   
+  // Normal conditions
   // Divide by 60, median filter
   // Compare with previous data
-  for(temp=0;temp<60;temp++)
-    accTemp += getBufSample(1);
-  temp = accTemp / 60;
-  if(abs(temp - ADCReasult[0]) > TempTH)
-    Status = 1;
-  ADCReasult[0] = temp;
-  accTemp = 0;
+  if(!firtHighFreqAttemp)
+  {
+    for(temp=0;temp<60;temp++)
+      accTemp += getBufSample(1);
+    temp = accTemp / 60;
+    if(abs(temp - ADCReasult[0]) > TempTH)
+      Status = 1;
+    ADCReasult[0] = temp;
+    accTemp = 0;
+    
+    for(temp=0;temp<60;temp++)
+      accTemp += getBufSample(2);
+    temp = accTemp / 60;
+    if(abs(temp - ADCReasult[1]) > CurrentTH)
+      Status = 1;
+    ADCReasult[1] = temp;
+    accTemp = 0;
+    
+    for(temp=0;temp<60;temp++)
+      accTemp += getBufSample(3);
+    temp = accTemp / 60;
+    if(abs(temp - ADCReasult[2]) > HPressTH)
+      Status = 1;
+    ADCReasult[2] = temp;
+    accTemp = 0;
+    
+    for(temp=0;temp<60;temp++)
+      accTemp += getBufSample(4);
+    temp = accTemp / 60;
+    if(abs(temp - ADCReasult[3]) > HPressTH)
+      Status = 1;
+    ADCReasult[3] = temp;  
+    accTemp = 0;
+  }
   
-  for(temp=0;temp<60;temp++)
-    accTemp += getBufSample(2);
-  temp = accTemp / 60;
-  if(abs(temp - ADCReasult[1]) > CurrentTH)
+  // If high frequency upload after power up
+  else
+  {
+    ADCReasult[0] = getBufSample(1);
+    ADCReasult[1] = getBufSample(2);
+    ADCReasult[2] = getBufSample(3);
+    ADCReasult[3] = getBufSample(4);
+    
     Status = 1;
-  ADCReasult[1] = temp;
-  accTemp = 0;
-  
-  for(temp=0;temp<60;temp++)
-    accTemp += getBufSample(3);
-  temp = accTemp / 60;
-  if(abs(temp - ADCReasult[2]) > HPressTH)
-    Status = 1;
-  ADCReasult[2] = temp;
-  accTemp = 0;
-  
-  for(temp=0;temp<60;temp++)
-    accTemp += getBufSample(4);
-  temp = accTemp / 60;
-  if(abs(temp - ADCReasult[3]) > HPressTH)
-    Status = 1;
-  ADCReasult[3] = temp;  
-  accTemp = 0;
-  
+  }
+      
   return Status;
 }
 
@@ -776,6 +827,7 @@ static void drone_DeviceCMDReact(afIncomingMSGPacket_t *Msg)
       if(Msg->cmd.Data[2] == AVAILABLE)
       {
         // 2nd time calculate, update data to upload
+        // 1st time calculate by drone_Datachange function
         drone_PrepareData();
         // Queen ready to receive data, send data
         drone_PeriodicDataMessage();
@@ -975,14 +1027,24 @@ static void drone_PrepareData( void )
   uint8 i = 0;
    
   // Recalculate the ADC reading
-  for(i=0; i<=3; i++)
+  if(!firtHighFreqAttemp)
   {
-    for(temp=0;temp<60;temp++)
-      accTemp += getBufSample(i+1);
-    
-    temp = accTemp / 60;   
-    ADCReasult[i] = temp;
-    accTemp = 0;
+    for(i=0; i<=3; i++)
+    {
+      for(temp=0;temp<60;temp++)
+        accTemp += getBufSample(i+1);
+      
+      temp = accTemp / 60;   
+      ADCReasult[i] = temp;
+      accTemp = 0;
+    }
+  }
+  else
+  {
+    ADCReasult[0] = getBufSample(1);
+    ADCReasult[1] = getBufSample(2);
+    ADCReasult[2] = getBufSample(3);
+    ADCReasult[3] = getBufSample(4);
   }
 }
 

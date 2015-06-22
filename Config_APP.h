@@ -12,7 +12,7 @@
 
 /*********** Essential ***************/
 // drone ID
-#define DRONE_DEVICE_ID         3
+#define DRONE_DEVICE_ID         4
 
 // Basic upload period, in mintues
 #define UpLoad_NormalPeriod     5   
@@ -34,5 +34,10 @@
 
 #define DRONE_FAILURE_MAXIMUN   2       // failure receive ACK, reset drone
 #define DRONE_ACKWAITTIME       10      // ACK reset wait time in second
+
+#define DRONE_TESTUPLOADPOINT   5       // Upload 5 datapoints every half min when startup.
+                                        // This is design to save field working time
+
+#define DRONE_TESTUPLOADTIME    30      // Test upload interval set 30s
 
 #endif
