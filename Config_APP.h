@@ -12,10 +12,17 @@
 
 /*********** Essential ***************/
 // drone ID
+<<<<<<< HEAD
 #define DRONE_DEVICE_ID         1
 
 // Basic upload period, in mintues
 #define UpLoad_NormalPeriod     2   
+=======
+#define DRONE_DEVICE_ID         3
+
+// Basic upload period, in mintues
+#define UpLoad_NormalPeriod     5   
+>>>>>>> c3c1376a12ba0f79f91ed4ed06961aac61b0eebd
 
 /********* Detail ***********/
 // Reset Value
