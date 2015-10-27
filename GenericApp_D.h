@@ -76,8 +76,17 @@ extern "C"
 #define GENERICAPP_WDT_CLEAR_EVT                0x0001
 #define GENERICAPP_DRONE_PERIODIC_MSG_EVT       0x0002
 #define GENERICAPP_ADCMEASURE_EVT               0x0004
-  
 
+// CMDs with queen
+#define DRONE_RESEND_INIT       0x0d
+#define DRONE_DATA_ACK          0x0f
+#define DRONE_SUCCESS_ACK       0x08
+#define DRONE_FAIL_ACK          0x04
+#define DRONE_SEND_REQ          0x0a
+  
+#define AVAILABLE       1
+#define UNAVAILABLE     0
+  
 #if defined( IAR_ARMCM3_LM )
 #define GENERICAPP_RTOS_MSG_EVT       0x0002
 #endif  
