@@ -79,13 +79,6 @@
 /*********************************************************************
  * MACROS
  */
-
-#define DRONE_RESEND_INIT       0x0d
-#define DRONE_DATA_ACK          0x0f
-#define DRONE_SEND_REQ          0x0a
-
-#define AVAILABLE       1
-#define UNAVAILABLE     0
    
 /*********************************************************************
  * CONSTANTS
@@ -190,7 +183,7 @@ static uint8 highFreqSecCounter = DRONE_TESTUPLOADTIME;
 static uint8 drone_resetFlag = FALSE;
 static uint8 drone_waitACKTimer = DRONE_ACKWAITTIME;
 static uint8 drone_waitACKFlag = FALSE;
-
+static uint8 lastUploadFail = FALSE; 
 /*********************************************************************
  * LOCAL FUNCTIONS
  */
@@ -372,7 +365,7 @@ uint16 GenericApp_ProcessEvent( uint8 task_id, uint16 events )
     // Prepare the sending data (have to calculate twice before sending)
     // 1st, datachange? 2st send (request-ask may introduce huge delay)
     // here is 1st
-    if(drone_Datachange()) // Data changed significantly
+    if(drone_Datachange() || lastUploadFail) // Data changed significantly
     {
       drone_DataSendingRequest(); // Send data sending request
       drone_MinCounter = 0;
@@ -644,6 +637,9 @@ static void drone_PeriodicDataMessage( void )
       
       // clear sending buf
       drone_MinCounter = 0;
+      
+      // assume fail untial success upload ACK
+      lastUploadFail = TRUE;
     }
     else
     {
@@ -808,6 +804,14 @@ static void drone_DeviceCMDReact(afIncomingMSGPacket_t *Msg)
   {
     switch(Msg->cmd.Data[1])
     {
+    case DRONE_SUCCESS_ACK:
+      lastUploadFail = FALSE;
+      break;
+      
+    case DRONE_FAIL_ACK:
+      lastUploadFail = TRUE;
+      break;  
+      
     case DRONE_RESEND_INIT: //Ask for re-register
       drone_InitialMessage();
       break;
