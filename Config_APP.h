@@ -12,7 +12,7 @@
 
 /*********** Essential ***************/
 // drone ID
-#define DRONE_DEVICE_ID         1
+#define DRONE_DEVICE_ID         2
 
 // Basic upload period, in mintues
 #define UpLoad_NormalPeriod     2   
@@ -37,6 +37,8 @@
 
 #define DRONE_TESTUPLOADPOINT   5       // Upload 5 datapoints every half min when startup.
                                         // This is design to save field working time
+
+#define DRONE_CONFLICT_BACKOFF  15      // Queen busy? back off 15s + random s
 
 #define DRONE_TESTUPLOADTIME    30      // Test upload interval set 30s
 

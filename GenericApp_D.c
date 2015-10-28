@@ -79,7 +79,7 @@
 /*********************************************************************
  * MACROS
  */
-   
+#define SIXTY_RECIPROCAL        ( 1 / 60 )
 /*********************************************************************
  * CONSTANTS
  */
@@ -240,6 +240,7 @@ void GenericApp_Init( uint8 task_id )
   
   // If the hardware is other parts of the device add it in main().
   
+  // set up the upload address
   Point_To_Point_DstAddr.addrMode = (afAddrMode_t)Addr16Bit;
   Point_To_Point_DstAddr.endPoint = GENERICAPP_ENDPOINT;
   Point_To_Point_DstAddr.addr.shortAddr = 0x0000; // Send to Coodinator 
@@ -269,9 +270,12 @@ void GenericApp_Init( uint8 task_id )
   DATA4_RingBuffer_pointer.pIn = DATA4_RingBuffer;
   DATA4_RingBuffer_pointer.pOut = DATA4_RingBuffer;
   
+  // start WDT timer  
+#if defined ( WDT_IN_PM1 )
   osal_start_timerEx( GenericApp_TaskID,
                   GENERICAPP_WDT_CLEAR_EVT,
                   GENERICAPP_WDT_TIMEOUT);
+#endif
   
   // Update the display
 #if defined ( LCD_SUPPORTED )
@@ -327,6 +331,7 @@ uint16 GenericApp_ProcessEvent( uint8 task_id, uint16 events )
             osal_start_timerEx( GenericApp_TaskID,
                               GENERICAPP_ADCMEASURE_EVT,
                               GENERICAPP_ADC_TIMEOUT );
+            
             // send the inital Msg to the coordinator          
             drone_InitialMessage();
           }
@@ -358,8 +363,9 @@ uint16 GenericApp_ProcessEvent( uint8 task_id, uint16 events )
   {  
     /* Send Req
      *
-     * 1. If data have significant change, send every 1 mintue;
-     * 2. Else send every UpLoad_NormalPeriod mintue.
+     * 1. If data have significant change, send every 1 minute;
+     * 2. If last Queen report last upload failed, send every 1 minute.
+     * 3. Else send every UpLoad_NormalPeriod mintue.
      *
      */
     // Prepare the sending data (have to calculate twice before sending)
@@ -370,7 +376,9 @@ uint16 GenericApp_ProcessEvent( uint8 task_id, uint16 events )
       drone_DataSendingRequest(); // Send data sending request
       drone_MinCounter = 0;
     }
-    else // Data has no big changed
+    
+    // Data has no big change
+    else 
     {
       // counter adding. counter will only clear after upload
       drone_MinCounter ++;
@@ -673,33 +681,45 @@ static uint8 drone_Datachange( void )
   {
     for(temp=0;temp<60;temp++)
       accTemp += getBufSample(1);
-    temp = accTemp / 60;
+    temp = (uint16)(accTemp * SIXTY_RECIPROCAL);
     if(abs(temp - ADCReasult[0]) > TempTH)
+    {
       Status = 1;
+      return Status;
+    }
     ADCReasult[0] = temp;
     accTemp = 0;
     
     for(temp=0;temp<60;temp++)
       accTemp += getBufSample(2);
-    temp = accTemp / 60;
+    temp = (uint16)(accTemp * SIXTY_RECIPROCAL);
     if(abs(temp - ADCReasult[1]) > CurrentTH)
+    {
       Status = 1;
+      return Status;
+    }
     ADCReasult[1] = temp;
     accTemp = 0;
     
     for(temp=0;temp<60;temp++)
       accTemp += getBufSample(3);
-    temp = accTemp / 60;
+    temp = (uint16)(accTemp * SIXTY_RECIPROCAL);
     if(abs(temp - ADCReasult[2]) > HPressTH)
+    {
       Status = 1;
+      return Status;
+    }
     ADCReasult[2] = temp;
     accTemp = 0;
     
     for(temp=0;temp<60;temp++)
       accTemp += getBufSample(4);
-    temp = accTemp / 60;
+    temp = (uint16)(accTemp * SIXTY_RECIPROCAL);
     if(abs(temp - ADCReasult[3]) > HPressTH)
+    {
       Status = 1;
+      return Status;
+    }
     ADCReasult[3] = temp;  
     accTemp = 0;
   }
@@ -713,8 +733,9 @@ static uint8 drone_Datachange( void )
     ADCReasult[3] = getBufSample(4);
     
     Status = 1;
-  }
-      
+    return Status;
+  }     
+  
   return Status;
 }
 
@@ -804,30 +825,38 @@ static void drone_DeviceCMDReact(afIncomingMSGPacket_t *Msg)
   {
     switch(Msg->cmd.Data[1])
     {
+      // upload status ACK: upload success
     case DRONE_SUCCESS_ACK:
+      // upload fail false, disable resend
       lastUploadFail = FALSE;
       break;
       
+      // upload status ACK: upload fail
     case DRONE_FAIL_ACK:
+      // upload fail true, enable resend
       lastUploadFail = TRUE;
       break;  
       
-    case DRONE_RESEND_INIT: //Ask for re-register
+      //Ask for re-register
+    case DRONE_RESEND_INIT: 
+      // resent init Msg
       drone_InitialMessage();
       break;
     
-    case DRONE_DATA_ACK: // ACK
+      // General ACK
+    case DRONE_DATA_ACK: 
       // reset flag, reload timer
       drone_waitACKFlag = FALSE;
       drone_waitACKTimer = DRONE_ACKWAITTIME;
       break;
       
+      // Send request ACK
     case DRONE_SEND_REQ:
-      /* clear flag first*/
       // reset flag, reload timer
       drone_waitACKFlag = FALSE;
       drone_waitACKTimer = DRONE_ACKWAITTIME;
       
+      // check ACK information
       if(Msg->cmd.Data[2] == AVAILABLE)
       {
         // 2nd time calculate, update data to upload
@@ -841,7 +870,7 @@ static void drone_DeviceCMDReact(afIncomingMSGPacket_t *Msg)
         // Queen is not ready, delay 15s+(0-5)s resend request
         // use ADC timer to calculate time, set counter value.
         // get a random value from 15-20s.
-        requestTimer = 15 + (osal_rand() & 0x0005);
+        requestTimer = DRONE_CONFLICT_BACKOFF + (osal_rand() & 0x0005);
       }
       break;
         
@@ -1030,7 +1059,8 @@ static void drone_PrepareData( void )
   uint16 temp = 0;
   uint8 i = 0;
    
-  // Recalculate the ADC reading
+  // Culate the ADC reading
+  // Normal upload
   if(!firtHighFreqAttemp)
   {
     for(i=0; i<=3; i++)
@@ -1038,11 +1068,14 @@ static void drone_PrepareData( void )
       for(temp=0;temp<60;temp++)
         accTemp += getBufSample(i+1);
       
-      temp = accTemp / 60;   
+      temp = (uint16)(accTemp * SIXTY_RECIPROCAL);   
       ADCReasult[i] = temp;
       accTemp = 0;
     }
   }
+  
+  // first high frequency upload
+  // directly send the first element in ring buffer
   else
   {
     ADCReasult[0] = getBufSample(1);
